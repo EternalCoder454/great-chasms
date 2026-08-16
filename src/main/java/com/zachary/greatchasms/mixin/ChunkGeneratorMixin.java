@@ -12,6 +12,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -62,8 +63,10 @@ public class ChunkGeneratorMixin {
         ChunkGenerator self = (ChunkGenerator) (Object) this;
         long seed = level.getSeed();
         int seaLevel = self.getSeaLevel();
+        RandomState randomState = level.getLevel().getChunkSource().randomState();
 
-        ChasmCarver.carve(chunk, seed, seaLevel);
+        ChasmCarver.carve(chunk, seed, seaLevel,
+                ChasmCarver.cornerOceanFactors(self, chunk, randomState, seaLevel));
 
         // Features are allowed to write a short way outside their own chunk, and decoration order is
         // not fixed. So a chunk cleaned at the tail of its own decoration can still be written into
@@ -89,7 +92,8 @@ public class ChunkGeneratorMixin {
                 }
                 ChunkAccess neighbour = level.getChunk(nx, nz);
                 if (neighbour != null) {
-                    ChasmCarver.carve(neighbour, seed, seaLevel);
+                    ChasmCarver.carve(neighbour, seed, seaLevel,
+                            ChasmCarver.cornerOceanFactors(self, neighbour, randomState, seaLevel));
                 }
             }
         }

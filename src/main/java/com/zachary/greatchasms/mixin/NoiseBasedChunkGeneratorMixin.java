@@ -5,6 +5,7 @@ import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.RandomState;
 import org.spongepowered.asm.mixin.Mixin;
@@ -39,6 +40,9 @@ public class NoiseBasedChunkGeneratorMixin {
         if (!ChasmCarver.appliesTo(region.getLevel().dimension())) {
             return;
         }
-        ChasmCarver.carve(chunk, seed, region.getSeaLevel());
+        ChunkGenerator self = (ChunkGenerator) (Object) this;
+        int seaLevel = region.getSeaLevel();
+        ChasmCarver.carve(chunk, seed, seaLevel,
+                ChasmCarver.cornerOceanFactors(self, chunk, randomState, seaLevel));
     }
 }

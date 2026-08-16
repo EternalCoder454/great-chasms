@@ -77,6 +77,47 @@ in a chunk a chasm merely clips is most of the 256.
 
 ---
 
+## 1c. The heightmap staleness class of bug
+
+Two separate defects, found a day apart, turned out to be the same mistake. Both are worth
+understanding together because a third instance is easy to write.
+
+**`ProtoChunk.setBlockState` updates `MOTION_BLOCKING`, `MOTION_BLOCKING_NO_LEAVES`, `OCEAN_FLOOR`
+and `WORLD_SURFACE`. It does NOT update the `_WG` variants.** Only `primeHeightmaps` writes those,
+and `carve()` calls it. So during generation the `_WG` heightmaps reflect *the last carve*, not the
+current blocks.
+
+### 1c.1 Icebergs left standing as spikes
+
+The carve started scanning at `getHeight(WORLD_SURFACE_WG)`. After a carve re-primed that to the
+emptied column, an iceberg feature placed packed ice twenty-odd blocks above sea level without
+touching `_WG`, so the cleanup pass read the stale low value, clamped to `seaLevel`, and began
+scanning *below* the ice. Everything above survived. Any tall feature over a chasm had the same hole;
+icebergs merely made it obvious.
+
+Fixed by scanning from `worldTop` and skipping empty sections a whole section at a time, so the carve
+no longer consults a heightmap for its start height at all.
+
+### 1c.2 Ocean bias widening the chasm on every pass
+
+`oceanFactor` read `getHeight(OCEAN_FLOOR_WG)`. After a carve the floor reads far lower, the depth
+saturates, `oceanFactor` goes to 1 and `oceanScale` widens the chasm, so each of the nine passes
+carved wider than the last. Same runaway that produced the vertical blades, arriving through the
+ocean bias instead of the vertical profile.
+
+Fixed by taking the sea floor from `ChunkGenerator.getBaseHeight`, a pure function of the noise that
+carving cannot touch, sampled at the four chunk corners and bilinearly interpolated. Corners are
+shared with neighbouring chunks so the field stays continuous across borders, and it costs four
+density-column evaluations per chunk instead of 256.
+
+### 1c.3 The rule
+
+**Nothing in the carve may read a `_WG` heightmap.** The carve writes them, so reading them makes the
+result depend on how many times it has already run. `chunk.getHeight` is now used nowhere in
+`ChasmCarver`.
+
+---
+
 ## 2. Open issues, roughly by value
 
 ### 2.1 The nine-pass carve is architecturally wasteful

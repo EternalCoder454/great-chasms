@@ -9,8 +9,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.ticks.ScheduledTick;
 
@@ -96,7 +98,12 @@ public final class ChasmCarver {
         return col.distance - 12.0 < col.halfWidth + field.maxWallOffset(col.halfWidth);
     }
 
-    public static void carve(ChunkAccess chunk, long worldSeed, int seaLevel) {
+    /**
+     * @param cornerOceanFactor ocean factor at the chunk's four corners in the order
+     *                          {@code (0,0) (16,0) (0,16) (16,16)}, from
+     *                          {@link #cornerOceanFactors}
+     */
+    public static void carve(ChunkAccess chunk, long worldSeed, int seaLevel, double[] cornerOceanFactor) {
         ChasmField field = ChasmField.forSeed(worldSeed);
 
         ChunkPos chunkPos = chunk.getPos();
@@ -118,10 +125,6 @@ public final class ChasmCarver {
         int minSectionY = minY >> 4;
         int bottom = ChasmConfig.removeBedrock() ? minY : minY + BEDROCK_LAYER;
         int worldTop = chunk.getMinY() + chunk.getHeight() - 1;
-
-        // WORLD_SURFACE_WG counts water, OCEAN_FLOOR_WG does not. Carving from the former is what
-        // empties the sea sitting directly over a chasm instead of letting it pour straight in.
-        Heightmap.Types topType = drainWater ? Heightmap.Types.WORLD_SURFACE_WG : Heightmap.Types.OCEAN_FLOOR_WG;
 
         // Fixed rim height for the vertical profile. Anything above it is carved at full rim width,
         // which is what you want anyway: a chasm cutting a mountain should not pinch shut just
@@ -153,10 +156,20 @@ public final class ChasmCarver {
             for (int lz = 0; lz < 16; lz++) {
                 int worldZ = baseZ + lz;
 
-                // The chunk's own heightmap gives the sea floor for free, so the ocean bias costs
-                // nothing here and is exact rather than an estimate.
-                int floor = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, lx, lz);
-                field.sample(worldX, worldZ, ChasmField.oceanFactor(floor, seaLevel), col);
+                // Ocean depth comes from the generator's prediction, bilinearly interpolated from the
+                // chunk corners, NOT from OCEAN_FLOOR_WG.
+                //
+                // The heightmap is re-primed by this very method, so after one pass the sea floor
+                // reads far lower, the depth saturates, oceanFactor goes to 1 and oceanScale widens
+                // the chasm. Every subsequent pass would then carve wider than the last: the same
+                // runaway that produced vertical blades, arriving through the ocean bias instead of
+                // the vertical profile. The generator's base height is a pure function of the noise
+                // and carving cannot touch it.
+                //
+                // Corners are shared with the neighbouring chunks, so the interpolation is continuous
+                // across chunk borders and costs four samples per chunk rather than 256.
+                double oceanFactor = bilinear(cornerOceanFactor, lx, lz);
+                field.sample(worldX, worldZ, oceanFactor, col);
 
                 if (col.halfWidth <= 0.5) {
                     continue;
@@ -167,16 +180,20 @@ public final class ChasmCarver {
                 }
                 nearChasm[(lx << 4) | lz] = true;
 
-                int top = chunk.getHeight(topType, lx, lz);
-                if (drainWater && seaLevel > top) {
-                    top = seaLevel;
-                }
-                if (top > worldTop) {
-                    top = worldTop;
-                }
-                if (top <= bottom) {
-                    continue;
-                }
+                // Scan from the top of the world, NOT from a heightmap.
+                //
+                // ProtoChunk.setBlockState updates MOTION_BLOCKING, MOTION_BLOCKING_NO_LEAVES,
+                // OCEAN_FLOOR and WORLD_SURFACE. It does NOT update the _WG variants, which only
+                // primeHeightmaps writes. So the sequence was: carve empties the column and re-primes
+                // WORLD_SURFACE_WG to the emptied state, a feature then places blocks well above
+                // that, and the cleanup pass reads the stale low value and starts scanning beneath
+                // what it was supposed to remove. Icebergs made this obvious because they stand
+                // twenty-odd blocks proud of the sea, so their tops survived as spikes, but any tall
+                // feature over a chasm had the same hole.
+                //
+                // Empty sections are skipped a whole section at a time below, so starting at the
+                // world top costs one iteration per empty section rather than sixteen.
+                int top = worldTop;
 
                 // The profile is measured against a FIXED reference, never against this column's
                 // current surface height.
@@ -199,31 +216,47 @@ public final class ChasmCarver {
                 // which is far more work than the per-column field sampling.
                 double wallCoarse = field.wallOffsetCoarse(worldX, top, worldZ, col.halfWidth);
                 double wallFine = field.wallOffsetFine(worldX, top, worldZ);
+                // Track the height each term was last sampled at rather than testing y against a
+                // modulus. The loop now jumps whole empty sections, so a modulus test could be
+                // stepped straight over and leave an offset sampled hundreds of blocks away in use.
+                int lastCoarseY = top;
+                int lastFineY = top;
 
                 for (int y = top; y >= bottom; y--) {
-                    if ((y & (COARSE_WALL_STEP - 1)) == 0) {
-                        wallCoarse = field.wallOffsetCoarse(worldX, y, worldZ, col.halfWidth);
-                    }
-                    if ((y & (FINE_WALL_STEP - 1)) == 0) {
-                        wallFine = field.wallOffsetFine(worldX, y, worldZ);
-                    }
-
-                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing, terracePhase)
-                            + wallCoarse + wallFine;
-                    if (col.distance >= allowed) {
-                        continue;
-                    }
-
                     int sectionIndex = (y >> 4) - minSectionY;
                     if (sectionIndex < 0 || sectionIndex >= sections.length) {
                         continue;
                     }
                     LevelChunkSection section = sections[sectionIndex];
                     if (section.hasOnlyAir()) {
+                        // Nothing in this whole section, so drop straight past it. The loop's own
+                        // decrement then lands on the block below. This is what makes starting at
+                        // the world top affordable.
+                        y = (sectionIndex + minSectionY) << 4;
                         continue;
                     }
                     int localY = y & 15;
                     if (section.getBlockState(lx, localY, lz).isAir()) {
+                        continue;
+                    }
+                    // With drainWater off, water is left where it is rather than carved out. The
+                    // heightmap used to express this; it cannot be trusted for the reason above.
+                    if (!drainWater && !section.getFluidState(lx, localY, lz).isEmpty()) {
+                        continue;
+                    }
+
+                    if (lastCoarseY - y >= COARSE_WALL_STEP) {
+                        wallCoarse = field.wallOffsetCoarse(worldX, y, worldZ, col.halfWidth);
+                        lastCoarseY = y;
+                    }
+                    if (lastFineY - y >= FINE_WALL_STEP) {
+                        wallFine = field.wallOffsetFine(worldX, y, worldZ);
+                        lastFineY = y;
+                    }
+
+                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing, terracePhase)
+                            + wallCoarse + wallFine;
+                    if (col.distance >= allowed) {
                         continue;
                     }
                     // Written straight into the section rather than through ChunkAccess so the
@@ -247,6 +280,40 @@ public final class ChasmCarver {
                     Heightmap.Types.WORLD_SURFACE_WG,
                     Heightmap.Types.OCEAN_FLOOR_WG));
         }
+    }
+
+    /**
+     * Ocean factor at a chunk's four corners, from the generator's predicted sea floor.
+     * <p>
+     * Four samples rather than 256 because {@code getBaseHeight} evaluates a whole density column
+     * and is far too expensive per block. Corners are shared with the neighbouring chunks, so
+     * interpolating between them stays continuous across chunk borders instead of stepping.
+     */
+    public static double[] cornerOceanFactors(ChunkGenerator generator, ChunkAccess chunk,
+                                              RandomState randomState, int seaLevel) {
+        int baseX = chunk.getPos().getMinBlockX();
+        int baseZ = chunk.getPos().getMinBlockZ();
+        double[] out = new double[4];
+        out[0] = cornerFactor(generator, chunk, randomState, seaLevel, baseX, baseZ);
+        out[1] = cornerFactor(generator, chunk, randomState, seaLevel, baseX + 16, baseZ);
+        out[2] = cornerFactor(generator, chunk, randomState, seaLevel, baseX, baseZ + 16);
+        out[3] = cornerFactor(generator, chunk, randomState, seaLevel, baseX + 16, baseZ + 16);
+        return out;
+    }
+
+    private static double cornerFactor(ChunkGenerator generator, ChunkAccess chunk,
+                                       RandomState randomState, int seaLevel, int x, int z) {
+        int floor = generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, chunk, randomState);
+        return ChasmField.oceanFactor(floor, seaLevel);
+    }
+
+    /** Bilinear interpolation of the four corner values across the chunk. */
+    private static double bilinear(double[] corners, int lx, int lz) {
+        double fx = lx / 16.0;
+        double fz = lz / 16.0;
+        double lower = corners[0] + (corners[1] - corners[0]) * fx;
+        double upper = corners[2] + (corners[3] - corners[2]) * fx;
+        return lower + (upper - lower) * fz;
     }
 
     /** True if any section overlapping [minY, maxY] still holds something other than air. Reads the
