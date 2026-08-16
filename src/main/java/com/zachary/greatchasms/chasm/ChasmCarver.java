@@ -85,8 +85,13 @@ public final class ChasmCarver {
         if (col.halfWidth <= 0.5) {
             return false;
         }
-        // Half a chunk diagonal of slack, so a chasm clipping the corner still counts.
-        return col.distance - 12.0 < col.halfWidth + field.wallAmplitude();
+        // maxWallOffset, not wallAmplitude. The carve widens by the coarse term too, which scales
+        // with the chasm's own width and dwarfs the fine amplitude: on a 700 block chasm that is
+        // roughly 98 blocks versus 22. Testing against the fine term alone made the structure
+        // exclusion band far narrower than the hole it is meant to cover, so structures could still
+        // start in a chunk the chasm actually reaches.
+        // Half a chunk diagonal of slack on top, so a chasm clipping the corner still counts.
+        return col.distance - 12.0 < col.halfWidth + field.maxWallOffset(col.halfWidth);
     }
 
     public static void carve(ChunkAccess chunk, long worldSeed, int seaLevel) {
@@ -129,11 +134,17 @@ public final class ChasmCarver {
         // remaining eight would otherwise re-sample the field for all 256 columns just to discover
         // there is nothing left to remove. If every section in the carve range is empty, there is
         // provably nothing to do, and this costs one flag read per section instead.
-        if (!anySolidInRange(sections, minSectionY, bottom, Math.min(worldTop, profileRim))) {
+        // Upper bound is worldTop, NOT profileRim. Above the rim the profile clamps to t = 1 and
+        // carves at full width, so material up there is still in scope. Bounding this at profileRim
+        // would let a tall feature standing over a chasm skip the carve entirely.
+        if (!anySolidInRange(sections, minSectionY, bottom, worldTop)) {
             return;
         }
 
         boolean carvedAnything = false;
+        // Which columns the chasm actually reaches. The water spill pass below uses this so it only
+        // touches the rim rather than every water block in the chunk.
+        boolean[] nearChasm = new boolean[256];
 
         for (int lx = 0; lx < 16; lx++) {
             int worldX = baseX + lx;
@@ -152,6 +163,7 @@ public final class ChasmCarver {
                     // Outside even the most outward excursion the wall noise could make.
                     continue;
                 }
+                nearChasm[(lx << 4) | lz] = true;
 
                 int top = chunk.getHeight(topType, lx, lz);
                 if (drainWater && seaLevel > top) {
@@ -211,7 +223,7 @@ public final class ChasmCarver {
         }
 
         if (carvedAnything) {
-            spillWaterIntoChasm(chunk, sections, minSectionY, seaLevel);
+            spillWaterIntoChasm(chunk, sections, minSectionY, seaLevel, nearChasm);
             if (ANNOUNCED.compareAndSet(false, true)) {
                 GreatChasms.LOGGER.info("Carved the first chasm of this session at chunk {}, {}"
                         + " (config loaded: {})", chunkPos.x(), chunkPos.z(), ChasmConfig.isLoaded());
@@ -255,7 +267,7 @@ public final class ChasmCarver {
      * them, and they keep flowing instead of evaporating on the first tick for want of a source.
      */
     private static void spillWaterIntoChasm(ChunkAccess chunk, LevelChunkSection[] sections,
-                                            int minSectionY, int seaLevel) {
+                                            int minSectionY, int seaLevel, boolean[] nearChasm) {
         // Only the band near the surface matters. Water far below is already enclosed, and scanning
         // the whole column would multiply the cost of every chasm chunk for no visible gain.
         int top = Math.min(seaLevel, chunk.getMinY() + chunk.getHeight() - 1);
@@ -277,6 +289,14 @@ public final class ChasmCarver {
             int localY = y & 15;
             for (int lx = 0; lx < 16; lx++) {
                 for (int lz = 0; lz < 16; lz++) {
+                    // Only the rim. Without this every water block in the chunk whose column happened
+                    // to sit on a chunk edge was marked, since a chunk edge always reads as exposed.
+                    // In an ocean that is roughly a quarter of the whole water body: thousands of
+                    // scheduled fluid ticks and a BlockPos allocation each, per chunk, to make water
+                    // hundreds of blocks from the chasm re-evaluate and settle straight back down.
+                    if (!nearRim(nearChasm, lx, lz)) {
+                        continue;
+                    }
                     FluidState fluid = section.getFluidState(lx, localY, lz);
                     if (fluid.isEmpty()) {
                         continue;
@@ -294,6 +314,18 @@ public final class ChasmCarver {
                 }
             }
         }
+    }
+
+    /** True if this column or one of its four neighbours is inside the chasm, which is where water
+     *  can actually fall in. Columns outside the chunk count as candidates, since the void they
+     *  border may live in the neighbouring chunk. */
+    private static boolean nearRim(boolean[] nearChasm, int lx, int lz) {
+        if (nearChasm[(lx << 4) | lz]) return true;
+        if (lx == 0 || lx == 15 || lz == 0 || lz == 15) return true;
+        return nearChasm[((lx - 1) << 4) | lz]
+                || nearChasm[((lx + 1) << 4) | lz]
+                || nearChasm[(lx << 4) | (lz - 1)]
+                || nearChasm[(lx << 4) | (lz + 1)];
     }
 
     /** True if this fluid block has open air beside or beneath it within this section. Blocks on a
