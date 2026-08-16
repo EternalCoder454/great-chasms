@@ -42,6 +42,10 @@ public final class ChasmCarver {
     /** How far below sea level to look for water that should start flowing into the chasm. */
     private static final int SPILL_SCAN_DEPTH = 40;
 
+    /** Height above sea level treated as the chasm rim for the vertical profile. Must not depend on
+     *  terrain, or the carve stops being idempotent across repeated passes. */
+    private static final int PROFILE_RIM_ABOVE_SEA = 72;
+
     /** So the log says once, clearly, that chasms are actually being cut. The first version of this
      *  mod silently disabled itself and looked identical to "no chasms nearby". */
     private static final AtomicBoolean ANNOUNCED = new AtomicBoolean(false);
@@ -112,6 +116,12 @@ public final class ChasmCarver {
         // empties the sea sitting directly over a chasm instead of letting it pour straight in.
         Heightmap.Types topType = drainWater ? Heightmap.Types.WORLD_SURFACE_WG : Heightmap.Types.OCEAN_FLOOR_WG;
 
+        // Fixed rim height for the vertical profile. Anything above it is carved at full rim width,
+        // which is what you want anyway: a chasm cutting a mountain should not pinch shut just
+        // because that column happens to start higher. Terrain independent, so it is identical on
+        // every pass over the same chunk.
+        int profileRim = seaLevel + PROFILE_RIM_ABOVE_SEA;
+
         LevelChunkSection[] sections = chunk.getSections();
         boolean carvedAnything = false;
 
@@ -144,7 +154,18 @@ public final class ChasmCarver {
                     continue;
                 }
 
-                double span = Math.max(1.0, top - bottom);
+                // The profile is measured against a FIXED reference, never against this column's
+                // current surface height.
+                //
+                // carve() finishes by re-priming the heightmaps, and a chunk is carved up to nine
+                // times: once for itself and once from each neighbour's decoration pass. Deriving
+                // the span from getHeight() meant every pass recomputed the profile against a
+                // surface the previous pass had just lowered, so each pass carved to a slightly
+                // different width and columns that survived one pass were cut by the next. The
+                // leftovers were thin vertical blades standing in the chasm and streaks radiating
+                // across it. Anchoring to sea level makes the carve idempotent: running it nine
+                // times now produces exactly the result of running it once.
+                double span = Math.max(1.0, profileRim - bottom);
                 double wallOffset = field.wallOffset(worldX, top, worldZ, col.halfWidth);
                 double terracePhase = field.terracePhase(worldX, worldZ);
 
