@@ -24,7 +24,17 @@ public final class GreatChasms {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public GreatChasms(ModContainer container, IEventBus modBus) {
-        container.registerConfig(ModConfig.Type.SERVER, ChasmConfig.SPEC);
+        // COMMON, not SERVER.
+        //
+        // SERVER was chosen on the reasoning that worldgen settings should travel with the save. In
+        // this setup they do not: the file lands in config/ globally, and nothing appears under
+        // saves/<world>/serverconfig at all. So the scoping bought none of the benefit while costing
+        // the whole of it, because a SERVER spec only has a Config object attached while a world is
+        // loaded, which made the mod list Config button throw from the title screen.
+        //
+        // COMMON attaches at mod load, so the screen works from the main menu and from in game, and
+        // the file stays exactly where it already was.
+        container.registerConfig(ModConfig.Type.COMMON, ChasmConfig.SPEC);
 
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> ChasmCommands.register(event));
 

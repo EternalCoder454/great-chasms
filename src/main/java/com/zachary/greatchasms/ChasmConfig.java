@@ -5,9 +5,18 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 import java.util.List;
 
 /**
- * Server scoped config, so it lives in the world's {@code serverconfig} folder and travels with the
- * save. That matters here: chasm shape must stay identical for the life of a world, otherwise chunks
- * generated before and after an edit would not line up along their shared border.
+ * Common scoped, so it is attached at mod load and editable from the main menu as well as in game.
+ * <p>
+ * This was originally SERVER, on the reasoning that worldgen settings ought to travel with the save.
+ * They did not: the file lands in {@code config/} globally and nothing is written under
+ * {@code saves/<world>/serverconfig}. So the scoping delivered none of its intended benefit while
+ * still carrying the restriction that a SERVER spec is only writable while a world is loaded, which
+ * broke the config screen from the title screen.
+ * <p>
+ * Chasm shape still has to stay fixed for the life of a world, or chunks generated before and after
+ * an edit will not line up along their shared border. That is now enforced where it actually belongs:
+ * {@link com.zachary.greatchasms.chasm.ChasmField} snapshots the shape values per seed, and the
+ * config screen states plainly which settings only affect newly generated terrain.
  */
 public final class ChasmConfig {
 
