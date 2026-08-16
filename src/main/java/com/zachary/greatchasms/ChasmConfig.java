@@ -21,6 +21,8 @@ public final class ChasmConfig {
     private static final ModConfigSpec.DoubleValue WALL_ROUGHNESS;
     private static final ModConfigSpec.DoubleValue WALL_SCALE;
     private static final ModConfigSpec.DoubleValue FLOOR_NARROWING;
+    private static final ModConfigSpec.DoubleValue TERRACE_STRENGTH;
+    private static final ModConfigSpec.IntValue TERRACE_COUNT;
     private static final ModConfigSpec.BooleanValue REMOVE_BEDROCK;
     private static final ModConfigSpec.BooleanValue DRAIN_WATER;
     private static final ModConfigSpec.BooleanValue BLOCK_STRUCTURES;
@@ -100,8 +102,23 @@ public final class ChasmConfig {
         FLOOR_NARROWING = b
                 .comment("Width at the world floor as a fraction of the width at the rim. 1.0 gives",
                         "vertical walls, lower values give the classic tapering chasm profile. This is",
-                        "never allowed to reach 0, so the chasm always stays open to the void.")
-                .defineInRange("floorNarrowing", 0.42D, 0.05D, 1.0D);
+                        "never allowed to reach 0, so the chasm always stays open to the void.",
+                        "Raised to 0.62 for steeper sides: at 0.42 the walls read as a smooth funnel.")
+                .defineInRange("floorNarrowing", 0.62D, 0.05D, 1.0D);
+
+        TERRACE_STRENGTH = b
+                .comment("How strongly the walls are cut into benches, 0 to 1.",
+                        "A plain taper is a cone, and a cone reads as a smooth funnel however rough the",
+                        "wall noise is, because the width changes by the same amount every block of",
+                        "height. Real cliffs hold their width for a stretch and then step. This quantises",
+                        "the profile into shelves with vertical risers between them, which is what puts",
+                        "actual edges on the walls. 0 restores the old smooth cone.")
+                .defineInRange("terraceStrength", 0.55D, 0.0D, 1.0D);
+
+        TERRACE_COUNT = b
+                .comment("How many benches from the floor to the rim. Fewer means taller cliffs with",
+                        "bigger drops; more means finer stepping.")
+                .defineInRange("terraceCount", 7, 1, 40);
 
         b.pop().comment("What the carve removes and prevents.").push("behaviour");
 
@@ -168,7 +185,9 @@ public final class ChasmConfig {
     private static final int DEF_MAX_WIDTH = 700;
     private static final double DEF_WALL_ROUGHNESS = 22.0D;
     private static final double DEF_WALL_SCALE = 0.28D;
-    private static final double DEF_FLOOR_NARROWING = 0.42D;
+    private static final double DEF_FLOOR_NARROWING = 0.62D;
+    private static final double DEF_TERRACE_STRENGTH = 0.55D;
+    private static final int DEF_TERRACE_COUNT = 7;
     private static final double DEF_OCEAN_BIAS = 0.35D;
     private static final int DEF_SEARCH_RADIUS = 12000;
     private static final List<String> DEF_DIMENSIONS = List.of("minecraft:overworld");
@@ -212,6 +231,17 @@ public final class ChasmConfig {
     public static double floorNarrowing() {
         return isLoaded() ? FLOOR_NARROWING.get() : DEF_FLOOR_NARROWING;
     }
+
+    public static double terraceStrength() {
+        return isLoaded() ? TERRACE_STRENGTH.get() : DEF_TERRACE_STRENGTH;
+    }
+
+    public static int terraceCount() {
+        return isLoaded() ? TERRACE_COUNT.get() : DEF_TERRACE_COUNT;
+    }
+
+    public static ModConfigSpec.DoubleValue terraceStrengthEntry() { return TERRACE_STRENGTH; }
+    public static ModConfigSpec.IntValue terraceCountEntry() { return TERRACE_COUNT; }
 
     public static double oceanBias() {
         return isLoaded() ? OCEAN_BIAS.get() : DEF_OCEAN_BIAS;

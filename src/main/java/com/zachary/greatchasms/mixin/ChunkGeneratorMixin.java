@@ -4,6 +4,7 @@ import com.zachary.greatchasms.ChasmConfig;
 import com.zachary.greatchasms.chasm.ChasmCarver;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
@@ -59,7 +60,39 @@ public class ChunkGeneratorMixin {
             return;
         }
         ChunkGenerator self = (ChunkGenerator) (Object) this;
-        ChasmCarver.carve(chunk, level.getSeed(), self.getSeaLevel());
+        long seed = level.getSeed();
+        int seaLevel = self.getSeaLevel();
+
+        ChasmCarver.carve(chunk, seed, seaLevel);
+
+        // Features are allowed to write a short way outside their own chunk, and decoration order is
+        // not fixed. So a chunk cleaned at the tail of its own decoration can still be written into
+        // afterwards by a neighbour being decorated later. That is why Streams Reflowing rivers kept
+        // reappearing inside chasms even with this pass in place: they were not landing in the chunk
+        // being decorated, they were spilling into one already cleaned.
+        //
+        // Re-cleaning the neighbours here closes that window. It is cheap for the usual case, since
+        // the whole-chunk rejection in carve() bails after five noise evaluations for any chunk no
+        // chasm passes through, and re-carving a chunk that is already clear only reads air.
+        ChunkPos pos = chunk.getPos();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) {
+                    continue;
+                }
+                int nx = pos.x() + dx;
+                int nz = pos.z() + dz;
+                // hasChunk keeps this inside the region decoration already has access to, so nothing
+                // here can force a neighbour to generate and recurse.
+                if (!level.hasChunk(nx, nz)) {
+                    continue;
+                }
+                ChunkAccess neighbour = level.getChunk(nx, nz);
+                if (neighbour != null) {
+                    ChasmCarver.carve(neighbour, seed, seaLevel);
+                }
+            }
+        }
     }
 
     @Inject(method = "createStructures", at = @At("HEAD"), cancellable = true)

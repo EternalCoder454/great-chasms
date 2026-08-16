@@ -69,6 +69,7 @@ public final class ChasmField {
     private final ChasmNoise wallNoise;
     private final ChasmNoise wallCoarseNoise;
     private final ChasmNoise profileNoise;
+    private final ChasmNoise terraceNoise;
 
     // Snapshotted at construction. Generation must stay reproducible for a given world even if
     // someone edits the config mid-session, otherwise chunks generated before and after the edit
@@ -86,6 +87,9 @@ public final class ChasmField {
     private final double wallRelative;
     private final double floorNarrowing;
     private final double profileFrequency;
+    private final double terraceStrength;
+    private final int terraceCount;
+    private final double terraceFrequency;
     private final double oceanBias;
     private final double gradientFloor;
 
@@ -96,6 +100,7 @@ public final class ChasmField {
         this.wallNoise = new ChasmNoise(worldSeed, 0x7D04);
         this.wallCoarseNoise = new ChasmNoise(worldSeed, 0x3F19);
         this.profileNoise = new ChasmNoise(worldSeed, 0x6B72);
+        this.terraceNoise = new ChasmNoise(worldSeed, 0x4E8D);
 
         this.pathFrequency = 1.0 / Math.max(64.0, ChasmConfig.chasmSpacing());
         // The region gate decides where chasms may exist at all, so its wavelength is what sets how
@@ -126,6 +131,10 @@ public final class ChasmField {
         // Section shape changes over a shorter distance than width does, so a single chasm passes
         // through several different characters rather than being one shape end to end.
         this.profileFrequency = 1.0 / 2200.0;
+        this.terraceStrength = ChasmConfig.terraceStrength();
+        this.terraceCount = ChasmConfig.terraceCount();
+        // Benches stay coherent over roughly this distance before stepping out of phase.
+        this.terraceFrequency = 1.0 / 300.0;
         this.oceanBias = ChasmConfig.oceanBias();
         // The field varies by roughly 1 over a wavelength, so a representative gradient magnitude is
         // on the order of the path frequency. See the clamp in distanceToCentreline for why this
@@ -278,11 +287,37 @@ public final class ChasmField {
      *
      * @param depth01 0 at the very bottom of the world, 1 at the chasm rim
      */
-    public double profileHalfWidth(double halfWidth, double depth01, double narrowing) {
+    /**
+     * @param terracePhase per column offset from {@link #terracePhase}, which is what stops every
+     *                     bench forming at the same height and turns a set of concentric rings into
+     *                     broken cliff lines
+     */
+    public double profileHalfWidth(double halfWidth, double depth01, double narrowing, double terracePhase) {
         // Straight sided all the way down would read as a box canyon. Narrowing toward the floor
         // gives the classic chasm silhouette while still leaving the bottom wide open to the void.
         double t = depth01 < 0.0 ? 0.0 : (depth01 > 1.0 ? 1.0 : depth01);
+
+        // A linear taper is a cone, and a cone reads as a smooth funnel no matter how rough the
+        // walls are, because the width changes by the same amount every block of height. Real cliffs
+        // do not: they hold width for a stretch, then step. Quantising the profile into benches
+        // produces vertical risers between flat shelves, which is what gives the walls their edges.
+        if (this.terraceStrength > 0.0 && this.terraceCount > 0) {
+            double stepped = Math.floor(t * this.terraceCount + terracePhase) / this.terraceCount;
+            if (stepped < 0.0) stepped = 0.0;
+            if (stepped > 1.0) stepped = 1.0;
+            t = t + (stepped - t) * this.terraceStrength;
+        }
+
         return halfWidth * (narrowing + (1.0 - narrowing) * t);
+    }
+
+    /** Vertical offset of this column's terrace pattern, in bench fractions. Low frequency so a run
+     *  of cliff stays coherent for tens of blocks before stepping out of phase with its neighbour. */
+    public double terracePhase(int worldX, int worldZ) {
+        if (this.terraceStrength <= 0.0) {
+            return 0.0;
+        }
+        return (this.terraceNoise.fbm(worldX * this.terraceFrequency, worldZ * this.terraceFrequency, 2) + 1.0) * 0.5;
     }
 
     /** Wall irregularity in blocks, added to the permitted half width. */

@@ -146,13 +146,14 @@ public final class ChasmCarver {
 
                 double span = Math.max(1.0, top - bottom);
                 double wallOffset = field.wallOffset(worldX, top, worldZ, col.halfWidth);
+                double terracePhase = field.terracePhase(worldX, worldZ);
 
                 for (int y = top; y >= bottom; y--) {
                     if ((y & (WALL_SAMPLE_STEP - 1)) == 0) {
                         wallOffset = field.wallOffset(worldX, y, worldZ, col.halfWidth);
                     }
 
-                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing) + wallOffset;
+                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing, terracePhase) + wallOffset;
                     if (col.distance >= allowed) {
                         continue;
                     }
