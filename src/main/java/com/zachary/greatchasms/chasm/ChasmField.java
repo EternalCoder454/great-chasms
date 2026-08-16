@@ -139,12 +139,19 @@ public final class ChasmField {
         // The field varies by roughly 1 over a wavelength, so a representative gradient magnitude is
         // on the order of the path frequency. See the clamp in distanceToCentreline for why this
         // matters.
-        // Raised from 0.30. A typical gradient for this field is around 3.8x the path frequency, so
-        // even at 0.85 the clamp still only engages on genuinely flat spots. The lower value was
-        // leaving thin vertical sheets of stone standing down the middle of a chasm wherever two
-        // branches of the contour pinched together and the hump between them mapped to a distance
-        // just outside the half width. Clamping harder pulls those humps inside it.
-        this.gradientFloor = this.pathFrequency * 0.85;
+        // Back down from 0.85, which was an overcorrection with a nasty side effect.
+        //
+        // The clamp exists for saddles, where two branches of the contour pinch together and the
+        // hump between them would otherwise read as far from any centreline. But it cannot tell a
+        // saddle from a local extremum of the field, and at an extremum the gradient falls away in
+        // every direction at once. Clamp hard enough and the whole disc around such a point
+        // satisfies dist < halfWidth, so the carve produces a filled circle rather than a band.
+        // That is where the circular chasms came from.
+        //
+        // 0.85 was chosen to suppress thin vertical sheets, but those turned out to be carve
+        // non-idempotency rather than a distance-estimate problem, and that is fixed at its source
+        // now. So the clamp only has to do its original job again.
+        this.gradientFloor = this.pathFrequency * 0.35;
     }
 
     /** Depth below sea level, in blocks, at which a column counts as fully oceanic. */

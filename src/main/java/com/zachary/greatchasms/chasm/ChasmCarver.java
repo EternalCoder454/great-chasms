@@ -123,6 +123,16 @@ public final class ChasmCarver {
         int profileRim = seaLevel + PROFILE_RIM_ABOVE_SEA;
 
         LevelChunkSection[] sections = chunk.getSections();
+
+        // Repeat-pass fast path. A chunk is carved up to nine times: once for itself and once from
+        // each neighbour's decoration. After the first pass the chasm volume is already air, so the
+        // remaining eight would otherwise re-sample the field for all 256 columns just to discover
+        // there is nothing left to remove. If every section in the carve range is empty, there is
+        // provably nothing to do, and this costs one flag read per section instead.
+        if (!anySolidInRange(sections, minSectionY, bottom, Math.min(worldTop, profileRim))) {
+            return;
+        }
+
         boolean carvedAnything = false;
 
         for (int lx = 0; lx < 16; lx++) {
@@ -212,6 +222,21 @@ public final class ChasmCarver {
                     Heightmap.Types.WORLD_SURFACE_WG,
                     Heightmap.Types.OCEAN_FLOOR_WG));
         }
+    }
+
+    /** True if any section overlapping [minY, maxY] still holds something other than air. Reads the
+     *  section's own emptiness flag rather than scanning blocks, so it is a handful of comparisons. */
+    private static boolean anySolidInRange(LevelChunkSection[] sections, int minSectionY, int minY, int maxY) {
+        int first = (minY >> 4) - minSectionY;
+        int last = (maxY >> 4) - minSectionY;
+        if (first < 0) first = 0;
+        if (last >= sections.length) last = sections.length - 1;
+        for (int i = first; i <= last; i++) {
+            if (!sections[i].hasOnlyAir()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
