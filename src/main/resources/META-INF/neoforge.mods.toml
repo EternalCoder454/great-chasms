@@ -6,6 +6,7 @@ license = "All-Rights-Reserved"
 modId = "${mod_id}"
 version = "${mod_version}"
 displayName = "Great Chasms"
+logoFile = "icon.png"
 description = '''
 Replaces the idea of a ravine with something worth the name. Great Chasms cut for thousands of
 blocks across the world, run up to hundreds of blocks wide, and drop straight past bedrock into the
