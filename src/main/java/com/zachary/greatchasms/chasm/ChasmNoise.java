@@ -102,6 +102,77 @@ public final class ChasmNoise {
         return lerp(w, lerp(v, x00, x10), lerp(v, x01, x11));
     }
 
+    /**
+     * Derivative of the quintic fade. {@code 30t^2(t-1)^2}, which is zero at both ends, matching the
+     * fade's own flatness there.
+     */
+    private static double fadeDerivative(double t) {
+        double s = t - 1.0;
+        return 30.0 * t * t * s * s;
+    }
+
+    /**
+     * Value and its exact gradient in one pass.
+     * <p>
+     * The alternative is a finite difference, which needs four extra full evaluations and is only an
+     * approximation of the slope over whatever step you picked. Bilinear interpolation of a fade is
+     * differentiable in closed form, so the true gradient falls out of values already computed for
+     * the interpolation itself and costs a handful of multiplies.
+     *
+     * @param out receives {@code [value, d/dx, d/dz]}, the derivatives in input-space units
+     */
+    public void valueWithGradient(double x, double z, double[] out) {
+        int x0 = floor(x);
+        int z0 = floor(z);
+        double fx = x - x0;
+        double fz = z - z0;
+        double u = fade(fx);
+        double v = fade(fz);
+
+        double n00 = lattice(x0, z0);
+        double n10 = lattice(x0 + 1, z0);
+        double n01 = lattice(x0, z0 + 1);
+        double n11 = lattice(x0 + 1, z0 + 1);
+
+        double lower = lerp(u, n00, n10);
+        double upper = lerp(u, n01, n11);
+
+        out[0] = lerp(v, lower, upper);
+        out[1] = fadeDerivative(fx) * lerp(v, n10 - n00, n11 - n01);
+        out[2] = fadeDerivative(fz) * (upper - lower);
+    }
+
+    /**
+     * Fractal sum with its exact gradient, normalised the same way {@link #fbm} is.
+     * <p>
+     * Each octave contributes its own derivative scaled by that octave's frequency, which is the
+     * chain rule for the {@code x * freq} substitution.
+     *
+     * @param out receives {@code [value, d/dx, d/dz]}, the derivatives in input-space units
+     */
+    public void fbmWithGradient(double x, double z, int octaves, double[] out) {
+        double sum = 0.0;
+        double gradX = 0.0;
+        double gradZ = 0.0;
+        double amplitude = 1.0;
+        double frequency = 1.0;
+        double total = 0.0;
+
+        for (int i = 0; i < octaves; i++) {
+            valueWithGradient(x * frequency, z * frequency, out);
+            sum += out[0] * amplitude;
+            gradX += out[1] * amplitude * frequency;
+            gradZ += out[2] * amplitude * frequency;
+            total += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+        }
+
+        out[0] = sum / total;
+        out[1] = gradX / total;
+        out[2] = gradZ / total;
+    }
+
     /** Fractal sum, normalised back into [-1, 1]. */
     public double fbm(double x, double z, int octaves) {
         double sum = 0.0;

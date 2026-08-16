@@ -44,6 +44,39 @@ The main loop now records a `nearChasm[256]` mask and the spill pass only consid
 
 ---
 
+## 1b. Fixed in the follow-up performance pass
+
+### 1b.1 Correction: I had the hot spot wrong above
+
+Section 2.2 below originally called out `ChasmField.sample` as the cost to beat. That was wrong by
+about thirty times. `sample` runs **once per column**; the wall offsets ran **twice per block of
+height** for every column inside a chasm. For a 400 block column that is 200 noise evaluations
+against 4. The carve loop, not the field sampling, is where the time goes.
+
+### 1b.2 Analytic gradient: five noise evaluations become one
+
+`distanceToCentreline` took the centre value plus four more for a central difference. Bilinear
+interpolation of a quintic fade is differentiable in closed form, so `ChasmNoise.fbmWithGradient`
+returns value and exact gradient from values the interpolation already computed. Cheaper *and* exact,
+where the difference only approximated the slope across an arbitrary eight block step.
+
+Note this slightly changes chasm shape, since the finite difference smoothed the gradient over eight
+blocks and the analytic one does not.
+
+### 1b.3 Wall terms sampled at their own rates
+
+Both terms were sampled every 4 blocks of height. Their vertical wavelengths are roughly **470 and
+57** blocks, so the coarse one was evaluated about eight times more often than it changes. Split into
+`wallOffsetCoarse` (every 16) and `wallOffsetFine` (every 4). Roughly halves the dominant cost.
+
+### 1b.4 `sample` early-out
+
+Beyond the widest a chasm could possibly be, the region, width and profile fields cannot change the
+answer. Bailing there turns four noise evaluations into one for every column outside the band, which
+in a chunk a chasm merely clips is most of the 256.
+
+---
+
 ## 2. Open issues, roughly by value
 
 ### 2.1 The nine-pass carve is architecturally wasteful
@@ -55,13 +88,16 @@ repeat passes cheap now, but the design is still doing double work.
 A deterministic ordering rule (only clean neighbours in the +X / +Z half-plane) would halve it, but
 decoration order is not guaranteed, so this needs thought rather than a quick edit.
 
-### 2.2 `ChasmField.sample` cost
+### 2.2 `ChasmField.sample` cost — largely addressed, see 1b
 
-Roughly nine fbm evaluations per column: five for the gradient-based distance, plus region, width and
-profile. 256 columns per chunk. Fine for one pass, less fine multiplied by the pass count above.
+Now one noise evaluation for a column outside the band and four inside, down from nine. Remaining
+idea if it ever matters again: reuse one evaluation across a 2x2 column block, since the field is far
+smoother than block resolution.
 
-The five distance evaluations are the obvious target — a cheaper analytic gradient, or reusing the
-centre evaluation across a 2x2 column block, would cut it substantially.
+Also worth knowing: the early-out in `carve` (`anySolidInRange`) is **much weaker than section 1
+implies**. It only fires when every section in the carve range is air, which is true only for chunks
+lying entirely inside a chasm. A chunk with walls still has solid sections, so it takes all nine full
+passes. Reducing per-pass cost was the practical answer; genuinely skipping passes needs 2.1.
 
 ### 2.3 Water spilling is still unverified
 

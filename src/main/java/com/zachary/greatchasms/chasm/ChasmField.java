@@ -38,9 +38,9 @@ public final class ChasmField {
         CACHE.clear();
     }
 
-    /** Step in blocks used for the numeric gradient. Large enough to stay clear of floating point
-     *  noise, small enough that the field is effectively linear across it. */
-    private static final double GRADIENT_STEP = 8.0;
+    /** Scratch for the value-and-gradient triple. Thread local rather than shared, so the field
+     *  stays safe to evaluate from every chunk worker at once without allocating per call. */
+    private static final ThreadLocal<double[]> GRADIENT_SCRATCH = ThreadLocal.withInitial(() -> new double[3]);
 
     // Two, not three. The third octave put small scale wiggle into the centreline, which spawned
     // extra saddles and pinch points and broke long chasms into short kinked ones.
@@ -198,17 +198,18 @@ public final class ChasmField {
      * as the coarse pass of a wide area search.
      */
     public double distanceToCentreline(int worldX, int worldZ) {
-        double x = worldX * this.pathFrequency;
-        double z = worldZ * this.pathFrequency;
-        double step = GRADIENT_STEP * this.pathFrequency;
+        // One evaluation, not five. This used to take the centre value plus four more for a central
+        // difference, and it is the hottest call in the mod: every column of every chunk, multiplied
+        // by the repeated cleanup passes. The analytic gradient is both cheaper and exact, where the
+        // difference was an approximation of the slope across an arbitrary eight block step.
+        double[] r = GRADIENT_SCRATCH.get();
+        this.pathNoise.fbmWithGradient(worldX * this.pathFrequency, worldZ * this.pathFrequency,
+                PATH_OCTAVES, r);
 
-        double n = this.pathNoise.fbm(x, z, PATH_OCTAVES);
-
-        // Central differences, in field units per block.
-        double dx = (this.pathNoise.fbm(x + step, z, PATH_OCTAVES)
-                - this.pathNoise.fbm(x - step, z, PATH_OCTAVES)) / (2.0 * GRADIENT_STEP);
-        double dz = (this.pathNoise.fbm(x, z + step, PATH_OCTAVES)
-                - this.pathNoise.fbm(x, z - step, PATH_OCTAVES)) / (2.0 * GRADIENT_STEP);
+        double n = r[0];
+        // Chain rule back out of the frequency substitution, so the gradient is per block again.
+        double dx = r[1] * this.pathFrequency;
+        double dz = r[2] * this.pathFrequency;
 
         double gradient = Math.sqrt(dx * dx + dz * dz);
 
@@ -235,6 +236,17 @@ public final class ChasmField {
      */
     public void sample(int worldX, int worldZ, double oceanFactor, Column out) {
         out.distance = distanceToCentreline(worldX, worldZ);
+
+        // Nothing beyond the widest a chasm could possibly be can matter, so stop before paying for
+        // the region, width and profile fields. In a chunk a chasm merely clips, that is most of the
+        // 256 columns, and it turns four noise evaluations into one for each of them.
+        if (out.distance > this.maxHalfWidth + maxWallOffset(this.maxHalfWidth)) {
+            out.halfWidth = 0.0;
+            out.regionFactor = 0.0;
+            out.taper = 0.0;
+            out.narrowing = this.floorNarrowing;
+            return;
+        }
 
         // A single continuous level set would wrap the whole world in one unbroken chasm network.
         // The region field gates that down to occasional runs, and fading rather than cutting means
@@ -327,25 +339,38 @@ public final class ChasmField {
         return (this.terraceNoise.fbm(worldX * this.terraceFrequency, worldZ * this.terraceFrequency, 2) + 1.0) * 0.5;
     }
 
-    /** Wall irregularity in blocks, added to the permitted half width. */
-    public double wallOffset(int worldX, int y, int worldZ, double halfWidth) {
-        // Vertical frequency is deliberately lower than horizontal. Equal frequencies give a wall
-        // that is evenly bumpy in every direction, which reads as noise; stretching it vertically
-        // produces the long ledges and shelves that make a rock face look bedded.
-        double coarse = this.wallCoarseNoise.fbm(
+    /**
+     * Coarse wall shape: bays and headlands, scaled by the chasm's own width.
+     * <p>
+     * Its vertical wavelength is about 470 blocks, so it barely moves over the height of a chasm.
+     * Sampling it as often as the fine term was pure waste, and it is now on its own much larger
+     * step. Vertical frequency is deliberately lower than horizontal throughout: equal frequencies
+     * give a wall that is evenly bumpy in every direction, which reads as noise, whereas stretching
+     * vertically produces the long ledges that make a rock face look bedded.
+     */
+    public double wallOffsetCoarse(int worldX, int y, int worldZ, double halfWidth) {
+        if (this.wallRelative <= 0.0) {
+            return 0.0;
+        }
+        return this.wallCoarseNoise.fbm(
                 worldX * this.wallCoarseFrequency,
                 y * this.wallCoarseFrequency * 0.55,
                 worldZ * this.wallCoarseFrequency, 2) * halfWidth * this.wallRelative;
+    }
 
-        double fine = this.wallAmplitude <= 0.0 ? 0.0 : this.wallNoise.fbm(
+    /** Fine wall detail: rock texture, at a vertical wavelength of roughly 57 blocks. */
+    public double wallOffsetFine(int worldX, int y, int worldZ) {
+        if (this.wallAmplitude <= 0.0) {
+            return 0.0;
+        }
+        return this.wallNoise.fbm(
                 worldX * this.wallFineFrequency,
                 y * this.wallFineFrequency * 0.7,
                 worldZ * this.wallFineFrequency, 2) * this.wallAmplitude;
-
-        return coarse + fine;
     }
 
-    /** Largest outward excursion {@link #wallOffset} can produce, used for rejection tests. */
+    /** Largest outward excursion the two wall terms can produce together, used for rejection tests.
+     *  Every "does the chasm reach here" predicate must use this rather than either term alone. */
     public double maxWallOffset(double halfWidth) {
         return halfWidth * this.wallRelative + this.wallAmplitude;
     }

@@ -34,10 +34,12 @@ public final class ChasmCarver {
     /** Height above bedrock left intact when bedrock removal is disabled. */
     private static final int BEDROCK_LAYER = 5;
 
-    /** Recompute wall roughness every this many blocks of height and reuse it in between. Sampling
-     *  3D noise per block would dominate the carve cost, and a chasm wall that steps every few
-     *  blocks reads as natural shelving rather than as an artefact. */
-    private static final int WALL_SAMPLE_STEP = 4;
+    /** Height between samples of each wall term. Both must be powers of two for the {@code &} test.
+     *  Set from the terms' own vertical wavelengths rather than a single shared guess: the coarse
+     *  term repeats about every 470 blocks and the fine one about every 57, so sampling both every
+     *  four blocks evaluated the coarse one roughly eight times more often than it changes. */
+    private static final int COARSE_WALL_STEP = 16;
+    private static final int FINE_WALL_STEP = 4;
 
     /** How far below sea level to look for water that should start flowing into the chasm. */
     private static final int SPILL_SCAN_DEPTH = 40;
@@ -188,15 +190,26 @@ public final class ChasmCarver {
                 // across it. Anchoring to sea level makes the carve idempotent: running it nine
                 // times now produces exactly the result of running it once.
                 double span = Math.max(1.0, profileRim - bottom);
-                double wallOffset = field.wallOffset(worldX, top, worldZ, col.halfWidth);
                 double terracePhase = field.terracePhase(worldX, worldZ);
 
+                // The two wall terms have very different vertical wavelengths, roughly 470 blocks
+                // against 57, so sampling them at the same rate meant the coarse one was evaluated
+                // about eight times more often than it changes. This is the hottest loop in the mod
+                // by a wide margin: it runs per block of height for every column inside a chasm,
+                // which is far more work than the per-column field sampling.
+                double wallCoarse = field.wallOffsetCoarse(worldX, top, worldZ, col.halfWidth);
+                double wallFine = field.wallOffsetFine(worldX, top, worldZ);
+
                 for (int y = top; y >= bottom; y--) {
-                    if ((y & (WALL_SAMPLE_STEP - 1)) == 0) {
-                        wallOffset = field.wallOffset(worldX, y, worldZ, col.halfWidth);
+                    if ((y & (COARSE_WALL_STEP - 1)) == 0) {
+                        wallCoarse = field.wallOffsetCoarse(worldX, y, worldZ, col.halfWidth);
+                    }
+                    if ((y & (FINE_WALL_STEP - 1)) == 0) {
+                        wallFine = field.wallOffsetFine(worldX, y, worldZ);
                     }
 
-                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing, terracePhase) + wallOffset;
+                    double allowed = field.profileHalfWidth(col.halfWidth, (y - bottom) / span, col.narrowing, terracePhase)
+                            + wallCoarse + wallFine;
                     if (col.distance >= allowed) {
                         continue;
                     }
