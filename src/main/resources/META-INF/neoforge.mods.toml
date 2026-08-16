@@ -36,6 +36,15 @@ side = "BOTH"
 
 # Tectonic reshapes overworld terrain. Its config is also where vanilla ravines get switched off,
 # which is the intended pairing: vanilla ravines removed there, real chasms added here.
+# Optional. Present means the mod list gets a Config button with a proper screen; absent means you
+# edit the config file. Nothing else changes either way.
+[[dependencies.${mod_id}]]
+modId = "cloth_config"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "CLIENT"
+
 [[dependencies.${mod_id}]]
 modId = "tectonic"
 type = "optional"

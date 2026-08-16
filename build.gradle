@@ -14,6 +14,14 @@ java {
 
 repositories {
     mavenCentral()
+    maven { url 'https://maven.shedaniel.me/' }   // Cloth Config
+}
+
+dependencies {
+    // Cloth Config is optional at runtime. Compile time only, and every reference to it is behind a
+    // mod-presence check, so the mod loads and works normally without it: you simply get no config
+    // screen button in the mod list.
+    compileOnly "me.shedaniel.cloth:cloth-config-neoforge:${cloth_config_version}"
 }
 
 neoForge {

@@ -134,6 +134,23 @@ public final class ChasmConfig {
     private ChasmConfig() {
     }
 
+    // Write access for the optional config screen. Kept as explicit accessors rather than making the
+    // fields public so the entries stay read-only to everything else, and so the screen is the only
+    // thing that can move them.
+    public static ModConfigSpec.BooleanValue enabledEntry() { return ENABLED; }
+    public static ModConfigSpec.DoubleValue spacingEntry() { return SPACING; }
+    public static ModConfigSpec.DoubleValue rarityEntry() { return RARITY; }
+    public static ModConfigSpec.DoubleValue oceanBiasEntry() { return OCEAN_BIAS; }
+    public static ModConfigSpec.IntValue minWidthEntry() { return MIN_WIDTH; }
+    public static ModConfigSpec.IntValue maxWidthEntry() { return MAX_WIDTH; }
+    public static ModConfigSpec.DoubleValue wallRoughnessEntry() { return WALL_ROUGHNESS; }
+    public static ModConfigSpec.DoubleValue wallScaleEntry() { return WALL_SCALE; }
+    public static ModConfigSpec.DoubleValue floorNarrowingEntry() { return FLOOR_NARROWING; }
+    public static ModConfigSpec.BooleanValue removeBedrockEntry() { return REMOVE_BEDROCK; }
+    public static ModConfigSpec.BooleanValue drainWaterEntry() { return DRAIN_WATER; }
+    public static ModConfigSpec.BooleanValue blockStructuresEntry() { return BLOCK_STRUCTURES; }
+    public static ModConfigSpec.IntValue searchRadiusEntry() { return SEARCH_RADIUS; }
+
     // Reading a ModConfigSpec value before its file is attached throws, and throwing out of a chunk
     // worker is unacceptable. The first version of this gated on a ModConfigEvent listener and
     // defaulted to "disabled" when that listener had not fired, which silently disabled the entire

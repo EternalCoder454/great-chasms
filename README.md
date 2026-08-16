@@ -58,6 +58,11 @@ marked and given an explicit tick to start it falling.
 Server scoped, so it lives in the world's config and travels with the save. Chasm shape must stay
 fixed for a world's life or chunks generated before and after an edit would not line up.
 
+Install **[Cloth Config](https://modrinth.com/mod/cloth-config)** for an in-game screen, reachable
+from the Config button in the mod list. It is entirely optional: without it the mod behaves
+identically and you edit the file instead. The screen separates the settings that take effect
+immediately from the ones that only apply to newly generated terrain, and says which is which.
+
 | Key | Default | Effect |
 |---|---|---|
 | `spacing` | 5000 | Field wavelength. **The main control over how long a chasm is** |
