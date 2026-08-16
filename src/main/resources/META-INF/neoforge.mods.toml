@@ -1,0 +1,73 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All-Rights-Reserved"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "Great Chasms"
+description = '''
+Replaces the idea of a ravine with something worth the name. Great Chasms cut for thousands of
+blocks across the world, run up to hundreds of blocks wide, and drop straight past bedrock into the
+void. Crossing one means flying or building a bridge.
+'''
+
+[[mixins]]
+config = "${mod_id}.mixins.json"
+
+[[dependencies.${mod_id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "[${neoforge_version},)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "[${minecraft_version},26.2)"
+ordering = "NONE"
+side = "BOTH"
+
+# All optional. The carve hooks the ordinary noise generator at the tail of its carver pass, so it
+# composes with whatever terrain these produce rather than competing with them. Ordering AFTER only
+# states the intent that their generation config is in place before ours reads the world.
+
+# Tectonic reshapes overworld terrain. Its config is also where vanilla ravines get switched off,
+# which is the intended pairing: vanilla ravines removed there, real chasms added here.
+[[dependencies.${mod_id}]]
+modId = "tectonic"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "regions_unexplored"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "streamsreflowing"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "lithostitched"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# C2ME generates chunks in parallel. Everything this mod evaluates is a pure function of the world
+# seed and the chunk it was handed, with no shared mutable state, so parallel generation is safe.
+[[dependencies.${mod_id}]]
+modId = "c2me"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"

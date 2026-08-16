@@ -1,0 +1,72 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version "${moddevgradle_version}"
+}
+
+version = mod_version
+group = maven_group
+base.archivesName = archives_base_name
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+neoForge {
+    version = neoforge_version
+
+    // Everything this mod does happens inside the chunk generation pipeline, so there is nothing
+    // client side to run. Both runs exist purely for testing generation in a dev world.
+    runs {
+        client {
+            client()
+            gameDirectory = file('run')
+        }
+        server {
+            server()
+            gameDirectory = file('run-server')
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+// The version and platform bounds in neoforge.mods.toml are filled in from gradle.properties so
+// the two can never drift apart.
+tasks.named('processResources', ProcessResources).configure {
+    var replacements = [
+            mod_id           : mod_id,
+            mod_version      : mod_version,
+            minecraft_version: minecraft_version,
+            neoforge_version : neoforge_version,
+    ]
+    inputs.properties(replacements)
+    filesMatching(['META-INF/neoforge.mods.toml', 'pack.mcmeta']) {
+        expand(replacements)
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+                'Specification-Title'   : mod_id,
+                'Specification-Version' : mod_version,
+                'Implementation-Title'  : mod_id,
+                'Implementation-Version': mod_version,
+        ])
+    }
+}
