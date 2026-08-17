@@ -67,13 +67,19 @@ public final class ChasmConfig {
 
         RARITY = b
                 .comment("How much of the world is allowed to contain chasms at all, as a threshold on",
-                        "a second large scale field. Higher is rarer. At 0.0 roughly half the world is",
-                        "eligible and chasms form a near continuous network; at 0.6 they are isolated",
-                        "runs separated by hundreds of thousands of blocks. Lower this if you want to",
-                        "trip over chasms constantly. Around 0.0 the eligible area is near the point",
-                        "where it joins up into one connected network, which is what lets a single",
-                        "chasm run for its full length instead of being cut short by the gate closing.")
-                .defineInRange("rarity", 0.0D, -1.0D, 0.95D);
+                        "a second large scale field. Higher is rarer.",
+                        "",
+                        "Read the next part before raising this. The field being thresholded has a",
+                        "wavelength of 'spacing' x 16, so 80000 blocks at the default. That is far",
+                        "larger than any distance you will search, which means this is effectively one",
+                        "coin flip for your whole area rather than a density: either you are inside an",
+                        "eligible region and chasms are everywhere, or you are outside one and there is",
+                        "nothing for tens of thousands of blocks. At 0.0 that flip came up empty for",
+                        "half of all seeds, which reads as the mod being broken rather than as chasms",
+                        "being rare. -0.7 opens about 84% of spawns while still leaving genuinely",
+                        "chasm free regions. How OFTEN you meet one inside an eligible region is set by",
+                        "'spacing', not by this.")
+                .defineInRange("rarity", -0.7D, -1.0D, 0.95D);
 
         OCEAN_BIAS = b
                 .comment("How much easier it is for a chasm to exist under deep water than on land.",
@@ -150,8 +156,15 @@ public final class ChasmConfig {
                 .define("blockStructures", true);
 
         SEARCH_RADIUS = b
-                .comment("How far out in blocks '/greatchasms locate' will look before giving up.")
-                .defineInRange("searchRadius", 12000, 512, 200000);
+                .comment("How far out in blocks '/greatchasms locate' will look before giving up.",
+                        "Sized against the region field's 80000 block wavelength, not against how far",
+                        "you would care to travel. If you spawn in an ineligible region the nearest",
+                        "chasm is on the far side of that region, and at the old 12000 the search",
+                        "could not physically reach out of the hole it started in, so it reported",
+                        "'no chasm' for a world that had plenty. The scan is a coarse lattice off the",
+                        "server thread and stops at the first hit, so a large radius only costs",
+                        "anything in the case where the answer is genuinely far away.")
+                .defineInRange("searchRadius", 60000, 512, 200000);
 
         b.pop();
         SPEC = b.build();
@@ -189,7 +202,7 @@ public final class ChasmConfig {
 
     private static final boolean DEF_ENABLED = true;
     private static final double DEF_SPACING = 5000.0D;
-    private static final double DEF_RARITY = 0.0D;
+    private static final double DEF_RARITY = -0.7D;
     private static final int DEF_MIN_WIDTH = 200;
     private static final int DEF_MAX_WIDTH = 700;
     private static final double DEF_WALL_ROUGHNESS = 22.0D;
@@ -198,7 +211,7 @@ public final class ChasmConfig {
     private static final double DEF_TERRACE_STRENGTH = 0.55D;
     private static final int DEF_TERRACE_COUNT = 7;
     private static final double DEF_OCEAN_BIAS = 0.35D;
-    private static final int DEF_SEARCH_RADIUS = 12000;
+    private static final int DEF_SEARCH_RADIUS = 60000;
     private static final List<String> DEF_DIMENSIONS = List.of("minecraft:overworld");
 
     public static boolean enabled() {

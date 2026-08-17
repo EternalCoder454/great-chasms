@@ -321,11 +321,18 @@ public final class ChasmField {
         // gets the full chasm, land gets a narrower one. Because oceanFactor ramps across the shelf
         // rather than switching at the waterline, the narrowing reads as the chasm tightening as it
         // comes ashore instead of as a step in the wall.
+        //
+        // It scales the SPREAD between the configured min and max, not the finished width. Scaling
+        // the finished width drove land chasms clean through the floor: at the default bias a land
+        // chasm came out at 0.51 of its width, so a configured minimum of 200 blocks was really 102
+        // on land. minWidth documents itself as a floor rather than a target, and it was not one.
+        // It also made land chasms narrow enough that the locate command, which steps by
+        // minWidth / 2, could stride straight over them.
         double landNarrowing = Math.min(0.70, this.oceanBias * 1.4);
         double oceanScale = 1.0 - landNarrowing * (1.0 - oceanFactor);
 
-        out.halfWidth = (this.minHalfWidth + (this.maxHalfWidth - this.minHalfWidth) * width01)
-                * taper * oceanScale;
+        out.halfWidth = (this.minHalfWidth + (this.maxHalfWidth - this.minHalfWidth) * width01 * oceanScale)
+                * taper;
 
         // A constant floor narrowing made every stretch of every chasm the same shape in section.
         // Varying it along the run is what produces the difference between a sheer walled shaft and
