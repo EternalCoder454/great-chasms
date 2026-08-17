@@ -3,6 +3,8 @@ package com.zachary.greatchasms.chasm;
 import com.zachary.greatchasms.ChasmConfig;
 import com.zachary.greatchasms.GreatChasms;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -17,7 +19,9 @@ import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.ticks.ScheduledTick;
 
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -61,18 +65,35 @@ public final class ChasmCarver {
         ANNOUNCED.set(false);
     }
 
+    /** Resolved form of the configured dimension list.
+     *  <p>
+     *  {@link #appliesTo} used to build {@code dimension.identifier().toString()} and compare it
+     *  against the raw config strings, so it allocated a String every call, twice per chunk. The
+     *  config list is rebuilt into keys on first use and whenever the underlying list instance
+     *  changes, which turns the check into a set lookup on an object the caller already holds. */
+    private record DimensionGate(List<? extends String> source, Set<ResourceKey<Level>> keys) {}
+    private static volatile DimensionGate dimensionGate;
+
     public static boolean appliesTo(ResourceKey<Level> dimension) {
         if (!ChasmConfig.enabled()) {
             return false;
         }
-        String id = dimension.identifier().toString();
         List<? extends String> allowed = ChasmConfig.dimensions();
-        for (int i = 0; i < allowed.size(); i++) {
-            if (id.equals(allowed.get(i))) {
-                return true;
+        DimensionGate gate = dimensionGate;
+        // Identity, not equals. The config holds one list instance and hands the same one back every
+        // call, so this is a pointer compare in the steady state rather than a list walk.
+        if (gate == null || gate.source != allowed) {
+            Set<ResourceKey<Level>> keys = new HashSet<>();
+            for (int i = 0; i < allowed.size(); i++) {
+                Identifier id = Identifier.tryParse(allowed.get(i));
+                if (id != null) {
+                    keys.add(ResourceKey.create(Registries.DIMENSION, id));
+                }
             }
+            gate = new DimensionGate(allowed, keys);
+            dimensionGate = gate;
         }
-        return false;
+        return gate.keys.contains(dimension);
     }
 
     /**
@@ -99,27 +120,44 @@ public final class ChasmCarver {
     }
 
     /**
-     * @param cornerOceanFactor ocean factor at the chunk's four corners in the order
-     *                          {@code (0,0) (16,0) (0,16) (16,16)}, from
-     *                          {@link #cornerOceanFactors}
+     * Cheap whole chunk rejection, which is the case for the overwhelming majority of chunks.
+     * <p>
+     * The distance estimate is very nearly 1-Lipschitz in world space, so no column inside this
+     * chunk can be closer to a centreline than the middle is, minus one chunk diagonal. Uses the
+     * widest a chasm could ever be, so it is independent of the ocean bias and therefore answerable
+     * without touching the generator.
+     * <p>
+     * Five noise evaluations. Separated from {@link #carve} so callers can run it <em>before</em>
+     * paying for {@link #cornerOceanFactors}.
      */
-    public static void carve(ChunkAccess chunk, long worldSeed, int seaLevel, double[] cornerOceanFactor) {
+    public static boolean mightIntersect(ChasmField field, ChunkPos chunkPos) {
+        double widest = field.maxPossibleHalfWidth();
+        return field.distanceToCentreline(chunkPos.getMinBlockX() + 8, chunkPos.getMinBlockZ() + 8) - 24.0
+                <= widest + field.maxWallOffset(widest);
+    }
+
+    /**
+     * Carves one chunk, sampling the ocean bias only if the chunk survives both cheap rejections.
+     * <p>
+     * The corner factors are four {@code getBaseHeight} calls, and each of those evaluates a whole
+     * density column through the generator's noise router. They used to be computed at the call
+     * site and handed in as an argument, which meant Java evaluated them before {@code carve} had
+     * any chance to reject the chunk. A chunk is visited ten times, once for its own carve and once
+     * from each of the nine decoration passes that touch it, so every chunk in the world was paying
+     * for forty density columns whose results were discarded a few instructions later. They are now
+     * taken after both rejections, so only chunks a chasm actually reaches ever sample them.
+     */
+    public static void carve(ChunkAccess chunk, long worldSeed, int seaLevel,
+                             ChunkGenerator generator, RandomState randomState) {
         ChasmField field = ChasmField.forSeed(worldSeed);
 
         ChunkPos chunkPos = chunk.getPos();
         int baseX = chunkPos.getMinBlockX();
         int baseZ = chunkPos.getMinBlockZ();
-        // Cheap whole chunk rejection, which is the case for the overwhelming majority of chunks.
-        // The distance estimate is very nearly 1-Lipschitz in world space, so no column inside this
-        // chunk can be closer to a centreline than the middle is, minus one chunk diagonal. Uses the
-        // widest a chasm could ever be, so it is independent of the ocean bias.
-        double widest = field.maxPossibleHalfWidth();
-        if (field.distanceToCentreline(baseX + 8, baseZ + 8) - 24.0
-                > widest + field.maxWallOffset(widest)) {
+        if (!mightIntersect(field, chunkPos)) {
             return;
         }
 
-        ChasmField.Column col = new ChasmField.Column();
         boolean drainWater = ChasmConfig.drainWater();
         int minY = chunk.getMinY();
         int minSectionY = minY >> 4;
@@ -146,6 +184,10 @@ public final class ChasmCarver {
             return;
         }
 
+        // Only now, past both rejections, is the ocean bias worth four density columns.
+        double[] cornerOceanFactor = cornerOceanFactors(generator, chunk, randomState, seaLevel);
+
+        ChasmField.Column col = new ChasmField.Column();
         boolean carvedAnything = false;
         // Which columns the chasm actually reaches. The water spill pass below uses this so it only
         // touches the rim rather than every water block in the chunk.

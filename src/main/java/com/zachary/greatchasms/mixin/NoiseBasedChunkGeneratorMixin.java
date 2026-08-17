@@ -42,7 +42,6 @@ public class NoiseBasedChunkGeneratorMixin {
         }
         ChunkGenerator self = (ChunkGenerator) (Object) this;
         int seaLevel = region.getSeaLevel();
-        ChasmCarver.carve(chunk, seed, seaLevel,
-                ChasmCarver.cornerOceanFactors(self, chunk, randomState, seaLevel));
+        ChasmCarver.carve(chunk, seed, seaLevel, self, randomState);
     }
 }

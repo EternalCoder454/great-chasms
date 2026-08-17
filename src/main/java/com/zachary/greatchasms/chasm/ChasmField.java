@@ -29,17 +29,44 @@ public final class ChasmField {
     /** One field per world seed. Built once, then shared by every generating thread. */
     private static final ConcurrentHashMap<Long, ChasmField> CACHE = new ConcurrentHashMap<>();
 
+    /** Single entry front cache for the map above.
+     *  <p>
+     *  {@code CACHE} is keyed by {@code Long}, and a world seed is an arbitrary long well outside
+     *  the {@code Long} cache, so every {@code computeIfAbsent} allocated a box purely to hash it.
+     *  This is called ten times per chunk from the carve passes plus once from the structure gate,
+     *  and in practice there is exactly one live seed, so this answers it with a field read and a
+     *  long compare.
+     *  <p>
+     *  Seed and field are held in one immutable object rather than two fields on purpose. As two
+     *  separate volatiles a reader could observe the new seed next to the old field and hand back
+     *  the wrong world's noise; a single reference is written atomically, so a reader either sees a
+     *  consistent pair or misses and falls through to the map. The allocation happens once per
+     *  world, not once per call. */
+    private record Cached(long seed, ChasmField field) {}
+    private static volatile Cached last;
+
     public static ChasmField forSeed(long seed) {
-        return CACHE.computeIfAbsent(seed, ChasmField::new);
+        Cached cached = last;
+        if (cached != null && cached.seed == seed) {
+            return cached.field;
+        }
+        ChasmField field = CACHE.computeIfAbsent(seed, ChasmField::new);
+        last = new Cached(seed, field);
+        return field;
     }
 
     /** Called when a world unloads so a long running client does not retain fields for dead seeds. */
     public static void clearCache() {
+        last = null;
         CACHE.clear();
     }
 
-    /** Scratch for the value-and-gradient triple. Thread local rather than shared, so the field
-     *  stays safe to evaluate from every chunk worker at once without allocating per call. */
+    /** Scratch for the value-and-gradient triple, for callers that have no {@link Column} to hand.
+     *  Thread local rather than shared, so the field stays safe to evaluate from every chunk worker
+     *  at once without allocating per call. Only the whole-chunk rejection and the commands use
+     *  this; the per-column path carries its own scratch on the Column, because a ThreadLocal probe
+     *  256 times per chunk is real work for no benefit when the caller already owns an object with
+     *  the right lifetime. */
     private static final ThreadLocal<double[]> GRADIENT_SCRATCH = ThreadLocal.withInitial(() -> new double[3]);
 
     // Two, not three. The third octave put small scale wiggle into the centreline, which spawned
@@ -182,6 +209,10 @@ public final class ChasmField {
         /** Width at the world floor as a fraction of the rim width, for THIS column. Varies along a
          *  chasm so some stretches are sheer shafts and others open into wide sloping valleys. */
         public double narrowing;
+        /** Scratch for the value-and-gradient triple. Lives here rather than in a ThreadLocal so the
+         *  per-column path does not probe one 256 times per chunk. A Column is owned by exactly one
+         *  carve on one thread, which is the same confinement the ThreadLocal was providing. */
+        final double[] gradient = new double[3];
     }
 
     public double maxPossibleHalfWidth() {
@@ -198,11 +229,14 @@ public final class ChasmField {
      * as the coarse pass of a wide area search.
      */
     public double distanceToCentreline(int worldX, int worldZ) {
+        return distanceToCentreline(worldX, worldZ, GRADIENT_SCRATCH.get());
+    }
+
+    private double distanceToCentreline(int worldX, int worldZ, double[] r) {
         // One evaluation, not five. This used to take the centre value plus four more for a central
         // difference, and it is the hottest call in the mod: every column of every chunk, multiplied
         // by the repeated cleanup passes. The analytic gradient is both cheaper and exact, where the
         // difference was an approximation of the slope across an arbitrary eight block step.
-        double[] r = GRADIENT_SCRATCH.get();
         this.pathNoise.fbmWithGradient(worldX * this.pathFrequency, worldZ * this.pathFrequency,
                 PATH_OCTAVES, r);
 
@@ -235,7 +269,7 @@ public final class ChasmField {
      * @param oceanFactor 0 for dry land, 1 for deep ocean, from {@link #oceanFactor(int, int)}
      */
     public void sample(int worldX, int worldZ, double oceanFactor, Column out) {
-        out.distance = distanceToCentreline(worldX, worldZ);
+        out.distance = distanceToCentreline(worldX, worldZ, out.gradient);
 
         // Nothing beyond the widest a chasm could possibly be can matter, so stop before paying for
         // the region, width and profile fields. In a chunk a chasm merely clips, that is most of the

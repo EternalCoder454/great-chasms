@@ -65,8 +65,7 @@ public class ChunkGeneratorMixin {
         int seaLevel = self.getSeaLevel();
         RandomState randomState = level.getLevel().getChunkSource().randomState();
 
-        ChasmCarver.carve(chunk, seed, seaLevel,
-                ChasmCarver.cornerOceanFactors(self, chunk, randomState, seaLevel));
+        ChasmCarver.carve(chunk, seed, seaLevel, self, randomState);
 
         // Features are allowed to write a short way outside their own chunk, and decoration order is
         // not fixed. So a chunk cleaned at the tail of its own decoration can still be written into
@@ -76,7 +75,10 @@ public class ChunkGeneratorMixin {
         //
         // Re-cleaning the neighbours here closes that window. It is cheap for the usual case, since
         // the whole-chunk rejection in carve() bails after five noise evaluations for any chunk no
-        // chasm passes through, and re-carving a chunk that is already clear only reads air.
+        // chasm passes through, and re-carving a chunk that is already clear only reads air. Note
+        // that carve() now takes the generator rather than a precomputed ocean factor array: passing
+        // the array meant its four density columns were evaluated for all nine neighbours before the
+        // rejection could run, which is forty wasted columns per chunk in the world.
         ChunkPos pos = chunk.getPos();
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
@@ -92,8 +94,7 @@ public class ChunkGeneratorMixin {
                 }
                 ChunkAccess neighbour = level.getChunk(nx, nz);
                 if (neighbour != null) {
-                    ChasmCarver.carve(neighbour, seed, seaLevel,
-                            ChasmCarver.cornerOceanFactors(self, neighbour, randomState, seaLevel));
+                    ChasmCarver.carve(neighbour, seed, seaLevel, self, randomState);
                 }
             }
         }
