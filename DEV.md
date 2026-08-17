@@ -3,7 +3,7 @@
 Design and build notes. For playing the mod see [README.md](README.md); for the review findings,
 open issues and the traps that are easy to reintroduce, see [REVIEW.md](REVIEW.md).
 
-## Building
+## 🛠️ Building
 
 Requires **JDK 25**.
 

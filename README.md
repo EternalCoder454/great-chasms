@@ -10,7 +10,7 @@ You cannot jump one. You fly across, or you build a bridge.
 
 **Minecraft 26.1.2 · NeoForge · Java 25**
 
-## What you get
+## ✨ What you get
 
 - **Enormous rifts.** 200 to 700 blocks across at the rim, running for thousands of blocks.
 - **A drop into nothing.** They cut through bedrock, so the bottom is open sky.
@@ -22,7 +22,7 @@ You cannot jump one. You fly across, or you build a bridge.
 
 Chasms only appear in **newly generated** terrain. Explore somewhere new, or start a fresh world.
 
-## Installing
+## 📦 Installing
 
 Drop the jar in your `mods` folder. That is it.
 
@@ -33,7 +33,7 @@ Drop the jar in your `mods` folder. That is it.
 - **A LOD mod** such as Distant Horizons or Voxy makes them far more impressive, since a 700 block
   chasm is wider than most render distances.
 
-## Finding one
+## 🧭 Finding one
 
 | Command | What it does |
 |---|---|
@@ -42,7 +42,7 @@ Drop the jar in your `mods` folder. That is it.
 
 `locate` is instant and does not load any terrain, so it is safe to spam.
 
-## Playing with them
+## 🎮 Playing with them
 
 Chasms are meant to be an obstacle worth respecting.
 
@@ -52,7 +52,7 @@ Chasms are meant to be an obstacle worth respecting.
 - If one cuts your base off from where you are going, that is the intended experience. Build a
   bridge; they are wide enough to be a real project.
 
-## Playing well with others
+## 🤝 Playing well with others
 
 Designed alongside **Tectonic**, **Regions Unexplored**, **Streams Reflowing**, **C2ME** and
 **Lithostitched**. All optional, none required.
@@ -60,7 +60,7 @@ Designed alongside **Tectonic**, **Regions Unexplored**, **Streams Reflowing**, 
 If you use **Tectonic**, turning vanilla ravines off in its config is the intended pairing: small
 ravines gone, real chasms in their place.
 
-## Settings
+## ⚙️ Settings
 
 Cloth Config gives you all of this in-game, and marks which settings apply instantly and which only
 affect new terrain. The ones most worth touching:
@@ -80,7 +80,7 @@ done before you explore an area.
 
 ---
 
-## About this mod
+## 📝 About this mod
 
 Great Chasms is **original work**, not a fork of anything. It is written for my own modpack and is
 not published to Modrinth or CurseForge, so this repository is the only place it exists.
