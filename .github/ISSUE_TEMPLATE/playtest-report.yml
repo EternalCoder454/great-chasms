@@ -1,0 +1,48 @@
+name: Playtest report
+description: Something failed while working through the playtesting checklist
+labels: ["playtest"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Work through PLAYTESTING.md in the repo root first. This form is for a checklist item
+        that failed.
+  - type: input
+    id: item
+    attributes:
+      label: Which checklist item failed
+      description: The section, and the wording of the item
+      placeholder: "Installation and load: a world creates and loads without crashing"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Minecraft and NeoForge versions
+      placeholder: "26.1.2, NeoForge 26.1.2.95"
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Full mod list
+      description: Paste it, or attach the list your launcher gives you
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        The relevant part of logs/latest.log, or the crash report. For a failure to load,
+        logs/debug.log carries the real stack and is far more use than either.
+      render: text
+    validations:
+      required: true
